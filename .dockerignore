@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+recordings/*.wav
+recordings/*.webm
+recordings/*.mp3
+.git/
+.env
+*.egg-info/

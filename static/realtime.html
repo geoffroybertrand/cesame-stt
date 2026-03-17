@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dict&eacute;e temps r&eacute;el &mdash; CESAME STT</title>
+    <style>
+        :root {
+            --bg: #0f0f0f;
+            --surface: #1a1a1a;
+            --surface-2: #242424;
+            --border: #333;
+            --text: #e8e8e8;
+            --text-muted: #888;
+            --accent: #3b82f6;
+            --red: #ef4444;
+            --radius: 12px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+        .topbar {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+        }
+        .topbar a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .topbar a:hover { color: var(--text); }
+        .topbar h1 { font-size: 1.15rem; font-weight: 600; }
+        .topbar .badge {
+            background: rgba(59,130,246,0.15);
+            color: var(--accent);
+            padding: 0.2rem 0.6rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .main {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            height: calc(100vh - 57px);
+        }
+        .sidebar {
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+            overflow-y: auto;
+        }
+        .sidebar h3 {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin-bottom: 0.25rem;
+        }
+        .btn-record {
+            width: 100%;
+            padding: 0.9rem;
+            border: none;
+            border-radius: var(--radius);
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            transition: all 0.15s;
+        }
+        .btn-record.start {
+            background: var(--accent);
+            color: white;
+        }
+        .btn-record.start:hover { background: #2563eb; }
+        .btn-record.stop {
+            background: var(--red);
+            color: white;
+            display: none;
+        }
+        .btn-record.stop:hover { background: #dc2626; }
+        .rec-status {
+            display: none;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            background: rgba(239,68,68,0.1);
+            border-radius: 8px;
+            font-size: 0.85rem;
+            color: var(--red);
+        }
+        .rec-status.active { display: flex; }
+        .dot-pulse {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            background: var(--red);
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .metrics {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+        }
+        .metric {
+            background: var(--surface-2);
+            border-radius: 8px;
+            padding: 0.75rem;
+        }
+        .metric-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 0.25rem;
+        }
+        .metric-value {
+            font-size: 1.1rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+        }
+        .actions {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            margin-top: auto;
+        }
+        .btn-action {
+            padding: 0.6rem 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: transparent;
+            color: var(--text);
+            cursor: pointer;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: background 0.1s;
+        }
+        .btn-action:hover { background: var(--surface-2); }
+        .btn-action:disabled { opacity: 0.3; cursor: not-allowed; }
+        .model-select {
+            width: 100%;
+            padding: 0.6rem 0.75rem;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+        .model-select:focus { outline: none; border-color: var(--accent); }
+        .model-info {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.3rem;
+        }
+        .content {
+            display: flex;
+            flex-direction: column;
+            padding: 1.5rem 2rem;
+            overflow: hidden;
+        }
+        .content-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+        .content-header h2 { font-size: 1rem; font-weight: 600; }
+        .word-count { font-size: 0.8rem; color: var(--text-muted); }
+        #transcript {
+            flex: 1;
+            padding: 1.5rem;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font-size: 1.05rem;
+            line-height: 1.8;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            color: var(--text);
+        }
+        #transcript.placeholder { color: var(--text-muted); font-style: italic; }
+        .error-banner {
+            display: none;
+            padding: 0.75rem 1rem;
+            background: rgba(239,68,68,0.1);
+            border: 1px solid rgba(239,68,68,0.3);
+            border-radius: 8px;
+            color: var(--red);
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
+        @media (max-width: 768px) {
+            .main { grid-template-columns: 1fr; }
+            .sidebar {
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+                flex-direction: row;
+                flex-wrap: wrap;
+                padding: 1rem;
+            }
+            .actions { flex-direction: row; margin-top: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <a href="/">&larr; Retour</a>
+        <h1>Dict&eacute;e temps r&eacute;el</h1>
+        <span class="badge" id="badgeBackend">...</span>
+    </div>
+
+    <div class="main">
+        <div class="sidebar">
+            <div>
+                <h3>Mod&egrave;le</h3>
+                <select class="model-select" id="modelSelect"></select>
+                <div class="model-info" id="modelInfo"></div>
+            </div>
+
+            <div>
+                <button class="btn-record start" id="startBtn">&#127908; D&eacute;marrer</button>
+                <button class="btn-record stop" id="stopBtn">&#9632; Arr&ecirc;ter l'enregistrement</button>
+            </div>
+
+            <div class="rec-status" id="recStatus">
+                <div class="dot-pulse"></div>
+                <span>Enregistrement en cours</span>
+            </div>
+
+            <div>
+                <h3>M&eacute;triques</h3>
+                <div class="metrics">
+                    <div class="metric">
+                        <div class="metric-label">Latence</div>
+                        <div class="metric-value" id="mLatency">&mdash;</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Dur&eacute;e</div>
+                        <div class="metric-value" id="mDuration">00:00</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Chunks</div>
+                        <div class="metric-value" id="mChunks">0</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Moy. lat.</div>
+                        <div class="metric-value" id="mAvgLat">&mdash;</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="actions">
+                <button class="btn-action" onclick="copyText()">&#128203; Copier</button>
+                <button class="btn-action" onclick="downloadAudio()" id="dlAudio" disabled>&#128190; Audio</button>
+                <button class="btn-action" onclick="downloadText()">&#128196; Texte</button>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="error-banner" id="errorBanner"></div>
+            <div class="content-header">
+                <h2>Transcription</h2>
+                <span class="word-count" id="wordCount">0 mots</span>
+            </div>
+            <div id="transcript" class="placeholder">Cliquez sur &laquo; D&eacute;marrer &raquo; puis parlez...</div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+    <script>
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const recStatus = document.getElementById('recStatus');
+        const transcriptDiv = document.getElementById('transcript');
+        const errorBanner = document.getElementById('errorBanner');
+        const mLatency = document.getElementById('mLatency');
+        const mDuration = document.getElementById('mDuration');
+        const mChunks = document.getElementById('mChunks');
+        const mAvgLat = document.getElementById('mAvgLat');
+        const wordCount = document.getElementById('wordCount');
+
+        let ws = null;
+        let capture = null;
+        let startTime = null;
+        let durationTimer = null;
+        let chunkCount = 0;
+        let totalLatency = 0;
+        let savedFilename = null;
+        let fullText = '';
+        const modelSelect = document.getElementById('modelSelect');
+        const modelInfo = document.getElementById('modelInfo');
+        const badgeBackend = document.getElementById('badgeBackend');
+
+        // Charger la liste des modèles
+        fetch('/api/models').then(r => r.json()).then(data => {
+            badgeBackend.textContent = data.backend === 'mlx' ? 'mlx-whisper' : 'faster-whisper (CPU)';
+            data.models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.name;
+                opt.textContent = `${m.name}  (${m.size})`;
+                if (m.name === data.default) opt.selected = true;
+                modelSelect.appendChild(opt);
+            });
+            updateModelInfo();
+        });
+        modelSelect.addEventListener('change', updateModelInfo);
+        function updateModelInfo() {
+            const sel = modelSelect.selectedOptions[0];
+            modelInfo.textContent = sel ? `Premier appel : t\u00e9l\u00e9chargement du mod\u00e8le` : '';
+        }
+
+        function showError(msg) {
+            errorBanner.textContent = msg;
+            errorBanner.style.display = 'block';
+        }
+
+        startBtn.addEventListener('click', async () => {
+            errorBanner.style.display = 'none';
+            try {
+                capture = await createAudioCapture(4);
+            } catch (err) {
+                showError("Micro inaccessible. V\u00e9rifiez les permissions du navigateur.");
+                return;
+            }
+
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const selectedModel = modelSelect.value;
+            ws = new WebSocket(`${proto}//${location.host}/ws/realtime?model=${encodeURIComponent(selectedModel)}`);
+            ws.binaryType = 'arraybuffer';
+
+            ws.onopen = () => {
+                transcriptDiv.textContent = '';
+                transcriptDiv.classList.remove('placeholder');
+                fullText = '';
+                chunkCount = 0;
+                totalLatency = 0;
+                savedFilename = null;
+                document.getElementById('dlAudio').disabled = true;
+
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'flex';
+                recStatus.classList.add('active');
+
+                startTime = Date.now();
+                durationTimer = setInterval(updateDuration, 1000);
+            };
+
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'transcript') {
+                    chunkCount++;
+                    totalLatency += msg.latency_ms;
+                    mChunks.textContent = chunkCount;
+                    mLatency.textContent = msg.latency_ms + ' ms';
+                    mAvgLat.textContent = Math.round(totalLatency / chunkCount) + ' ms';
+
+                    if (msg.full_text) {
+                        fullText = msg.full_text;
+                        transcriptDiv.textContent = fullText;
+                        transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
+                        const wc = fullText.trim().split(/\s+/).filter(w => w).length;
+                        wordCount.textContent = wc + ' mots';
+                    }
+                } else if (msg.type === 'saved') {
+                    savedFilename = msg.filename;
+                    document.getElementById('dlAudio').disabled = false;
+                    if (msg.transcript) fullText = msg.transcript;
+                } else if (msg.type === 'error') {
+                    showError(msg.message);
+                }
+            };
+
+            ws.onerror = () => showError('Erreur WebSocket');
+
+            capture.workletNode.port.onmessage = (event) => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(event.data.buffer);
+                }
+            };
+        });
+
+        stopBtn.addEventListener('click', () => {
+            destroyAudioCapture(capture);
+            capture = null;
+            if (ws) { ws.close(); ws = null; }
+            if (durationTimer) { clearInterval(durationTimer); durationTimer = null; }
+
+            startBtn.style.display = 'flex';
+            stopBtn.style.display = 'none';
+            recStatus.classList.remove('active');
+        });
+
+        function updateDuration() {
+            if (!startTime) return;
+            const s = Math.floor((Date.now() - startTime) / 1000);
+            mDuration.textContent = formatTime(s);
+        }
+
+        function copyText() {
+            navigator.clipboard.writeText(fullText || transcriptDiv.textContent);
+        }
+        function downloadAudio() {
+            if (savedFilename) window.open(`/recordings/${savedFilename}`, '_blank');
+        }
+        function downloadText() {
+            const blob = new Blob([fullText || transcriptDiv.textContent], { type: 'text/plain' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'dictee.txt';
+            a.click();
+        }
+    </script>
+</body>
+</html>

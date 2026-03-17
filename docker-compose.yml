@@ -1,0 +1,16 @@
+services:
+  cesame-stt:
+    build: .
+    container_name: cesame-stt
+    ports:
+      - "8000:8000"
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - ./recordings:/app/recordings
+      # Cache des modèles HuggingFace pour ne pas re-télécharger à chaque restart
+      - huggingface-cache:/root/.cache/huggingface
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:

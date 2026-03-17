@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+websockets
+python-multipart
+numpy
+soundfile
+faster-whisper
+pyannote.audio>=3.3,<4.0
+torch==2.4.1
+torchaudio==2.4.1

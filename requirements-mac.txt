@@ -1,0 +1,4 @@
+# Dépendances supplémentaires pour macOS natif (Apple Silicon)
+# Installer en plus de requirements.txt :
+#   pip install -r requirements-mac.txt
+mlx-whisper==0.4.2

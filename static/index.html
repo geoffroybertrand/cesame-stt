@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CESAME STT Test</title>
+    <style>
+        :root {
+            --bg: #0f0f0f;
+            --surface: #1a1a1a;
+            --surface-2: #242424;
+            --border: #333;
+            --text: #e8e8e8;
+            --text-muted: #888;
+            --accent-blue: #3b82f6;
+            --accent-green: #22c55e;
+            --accent-purple: #a855f7;
+            --accent-orange: #f97316;
+            --radius: 16px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 3rem 1.5rem;
+        }
+        .logo {
+            font-size: 0.85rem;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }
+        h1 {
+            font-size: 2.8rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, #e8e8e8 0%, #888 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle { color: var(--text-muted); margin-bottom: 3rem; font-size: 1.05rem; }
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.25rem;
+            max-width: 1040px;
+            width: 100%;
+        }
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 2rem 1.75rem;
+            text-decoration: none;
+            color: inherit;
+            display: flex;
+            flex-direction: column;
+            transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            border-radius: var(--radius) var(--radius) 0 0;
+        }
+        .card:nth-child(1)::before { background: var(--accent-blue); }
+        .card:nth-child(2)::before { background: var(--accent-green); }
+        .card:nth-child(3)::before { background: var(--accent-purple); }
+        .card:hover {
+            border-color: #555;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+        .card-icon {
+            width: 48px; height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin-bottom: 1.25rem;
+        }
+        .card:nth-child(1) .card-icon { background: rgba(59,130,246,0.15); }
+        .card:nth-child(2) .card-icon { background: rgba(34,197,94,0.15); }
+        .card:nth-child(3) .card-icon { background: rgba(168,85,247,0.15); }
+        .card h2 { font-size: 1.2rem; font-weight: 600; margin-bottom: 0.5rem; }
+        .card p { color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; flex: 1; }
+        .card-tag {
+            display: inline-block;
+            margin-top: 1.25rem;
+            padding: 0.3rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            align-self: flex-start;
+        }
+        .card:nth-child(1) .card-tag { background: rgba(59,130,246,0.15); color: var(--accent-blue); }
+        .card:nth-child(2) .card-tag { background: rgba(34,197,94,0.15); color: var(--accent-green); }
+        .card:nth-child(3) .card-tag { background: rgba(168,85,247,0.15); color: var(--accent-purple); }
+        .footer {
+            margin-top: 4rem;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            text-align: center;
+        }
+        .footer span { opacity: 0.5; }
+        .status-bar {
+            margin-top: 2rem;
+            display: flex;
+            gap: 2rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--accent-green);
+        }
+        .status-dot.warn { background: var(--accent-orange); }
+        .status-dot.off { background: #555; }
+    </style>
+</head>
+<body>
+    <div class="logo">CESAME</div>
+    <h1>Speech-to-Text Lab</h1>
+    <p class="subtitle">Outil de test STT pour la th&eacute;rapie syst&eacute;mique br&egrave;ve</p>
+
+    <div class="cards">
+        <a href="/realtime" class="card">
+            <div class="card-icon">&#127908;</div>
+            <h2>Dict&eacute;e temps r&eacute;el</h2>
+            <p>Transcription en streaming via mlx-whisper. Parlez, le texte appara&icirc;t en direct. Id&eacute;al pour tester la latence et la qualit&eacute; de la dict&eacute;e vocale.</p>
+            <span class="card-tag">Streaming &bull; 1 locuteur</span>
+        </a>
+
+        <a href="/session" class="card">
+            <div class="card-icon">&#128101;</div>
+            <h2>Session multi-locuteur</h2>
+            <p>Enregistrez une s&eacute;ance en temps r&eacute;el avec transcription live, puis lancez la diarisation pour identifier les locuteurs. Rendu style Quill Meeting.</p>
+            <span class="card-tag">Live + Diarisation</span>
+        </a>
+
+        <a href="/diarization" class="card">
+            <div class="card-icon">&#128196;</div>
+            <h2>Batch post-s&eacute;ance</h2>
+            <p>Uploadez un fichier audio existant pour obtenir la transcription compl&egrave;te avec identification des locuteurs et export structur&eacute;.</p>
+            <span class="card-tag">Upload &bull; Multi-locuteur</span>
+        </a>
+    </div>
+
+    <div class="status-bar">
+        <div class="status-item">
+            <div class="status-dot" id="dotWhisper"></div>
+            <span>mlx-whisper</span>
+        </div>
+        <div class="status-item">
+            <div class="status-dot" id="dotPyannote"></div>
+            <span>pyannote</span>
+        </div>
+        <div class="status-item">
+            <div class="status-dot" id="dotFfmpeg"></div>
+            <span>ffmpeg</span>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>CESAME &mdash; Th&eacute;rapie syst&eacute;mique br&egrave;ve (Palo Alto / MRI)</p>
+        <p><span>Apple M4 Max &bull; mlx-whisper large-v3-turbo &bull; pyannote 3.3</span></p>
+    </div>
+
+    <script>
+        fetch('/api/health').then(r => r.json()).then(data => {
+            document.getElementById('dotWhisper').className = 'status-dot ' + (data.mlx_whisper ? '' : 'off');
+            document.getElementById('dotPyannote').className = 'status-dot ' + (data.pyannote ? '' : (data.hf_token ? 'warn' : 'off'));
+            document.getElementById('dotFfmpeg').className = 'status-dot ' + (data.ffmpeg ? '' : 'off');
+        }).catch(() => {
+            document.querySelectorAll('.status-dot').forEach(d => d.className = 'status-dot off');
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session multi-locuteur &mdash; CESAME STT</title>
+    <style>
+        :root {
+            --bg: #0f0f0f;
+            --surface: #1a1a1a;
+            --surface-2: #242424;
+            --border: #333;
+            --text: #e8e8e8;
+            --text-muted: #888;
+            --accent: #22c55e;
+            --accent-blue: #3b82f6;
+            --red: #ef4444;
+            --radius: 12px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+        .topbar {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+        }
+        .topbar a { color: var(--text-muted); text-decoration: none; font-size: 0.9rem; }
+        .topbar a:hover { color: var(--text); }
+        .topbar h1 { font-size: 1.15rem; font-weight: 600; }
+        .topbar .badge {
+            background: rgba(34,197,94,0.15);
+            color: var(--accent);
+            padding: 0.2rem 0.6rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .container { max-width: 900px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+        /* Phase 1: Recording */
+        .phase { display: none; }
+        .phase.active { display: block; }
+
+        .record-section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 2rem;
+            text-align: center;
+        }
+        .record-section h2 { margin-bottom: 0.5rem; }
+        .record-section p { color: var(--text-muted); margin-bottom: 1.5rem; }
+
+        .btn-session {
+            padding: 1rem 2.5rem;
+            border: none;
+            border-radius: var(--radius);
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .btn-session.start { background: var(--accent); color: #000; }
+        .btn-session.start:hover { background: #16a34a; }
+        .btn-session.stop { background: var(--red); color: white; }
+
+        .live-panel {
+            display: none;
+            margin-top: 1.5rem;
+            text-align: left;
+        }
+        .live-panel.active { display: block; }
+
+        .live-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+        .live-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--red);
+            font-weight: 500;
+        }
+        .dot-pulse {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            background: var(--red);
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .live-duration { color: var(--text-muted); font-variant-numeric: tabular-nums; font-size: 1.1rem; }
+
+        .live-transcript {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 1.25rem;
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-size: 0.95rem;
+            line-height: 1.7;
+            white-space: pre-wrap;
+        }
+        .live-transcript.placeholder { color: var(--text-muted); font-style: italic; }
+        .model-row {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+        }
+        .model-row label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            letter-spacing: 0.5px;
+        }
+        .model-row select {
+            padding: 0.5rem 0.75rem;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 0.85rem;
+        }
+
+        /* Phase 2: Processing */
+        .progress-section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 2rem;
+        }
+        .progress-section h2 { margin-bottom: 1.5rem; text-align: center; }
+
+        .steps {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .step {
+            flex: 1;
+            padding: 1rem;
+            background: var(--surface-2);
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            text-align: center;
+            transition: border-color 0.3s;
+        }
+        .step.active { border-color: var(--accent); }
+        .step.done { border-color: var(--accent); background: rgba(34,197,94,0.05); }
+        .step-num {
+            width: 28px; height: 28px;
+            border-radius: 50%;
+            background: var(--border);
+            color: var(--text-muted);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        .step.active .step-num, .step.done .step-num {
+            background: var(--accent);
+            color: #000;
+        }
+        .step-name { font-size: 0.85rem; font-weight: 600; }
+        .step-detail { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
+
+        .progress-bar-bg {
+            width: 100%;
+            height: 6px;
+            background: var(--surface-2);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background: var(--accent);
+            border-radius: 3px;
+            width: 0%;
+            transition: width 0.5s;
+        }
+        .progress-text {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-top: 0.75rem;
+        }
+
+        /* Phase 3: Results — Quill Meeting style */
+        .result-section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+        .result-header {
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        .result-header h2 { font-size: 1.15rem; }
+        .result-stats {
+            display: flex;
+            gap: 1.5rem;
+        }
+        .result-stat {
+            text-align: center;
+        }
+        .result-stat-value { font-size: 1.2rem; font-weight: 700; }
+        .result-stat-label { font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; }
+
+        .result-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 2rem;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface-2);
+            flex-wrap: wrap;
+        }
+        .btn-export {
+            padding: 0.4rem 1rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: transparent;
+            color: var(--text);
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: background 0.1s;
+        }
+        .btn-export:hover { background: var(--surface); }
+
+        .speakers-panel {
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .speakers-panel label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            letter-spacing: 0.5px;
+        }
+        .speaker-rename {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .speaker-dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+        }
+        .speaker-rename input {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text);
+            padding: 0.3rem 0.5rem;
+            font-size: 0.85rem;
+            width: 130px;
+        }
+        .speaker-rename input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .turns-list {
+            padding: 1rem 2rem 2rem;
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+        .turn {
+            padding: 0.9rem 1rem;
+            margin-bottom: 0.4rem;
+            border-radius: 8px;
+            border-left: 3px solid transparent;
+        }
+        .turn-header {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            margin-bottom: 0.35rem;
+        }
+        .turn-avatar {
+            width: 28px; height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.65rem;
+            font-weight: 700;
+            color: white;
+            flex-shrink: 0;
+        }
+        .turn-speaker {
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        .turn-time {
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            margin-left: auto;
+            font-variant-numeric: tabular-nums;
+        }
+        .turn-text {
+            font-size: 0.95rem;
+            line-height: 1.6;
+            padding-left: 34px;
+            color: #ccc;
+        }
+
+        .error-banner {
+            display: none;
+            padding: 0.75rem 1rem;
+            background: rgba(239,68,68,0.1);
+            border: 1px solid rgba(239,68,68,0.3);
+            border-radius: 8px;
+            color: var(--red);
+            margin-bottom: 1rem;
+        }
+
+        @media (max-width: 640px) {
+            .steps { flex-direction: column; }
+            .result-header { flex-direction: column; align-items: flex-start; }
+        }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <a href="/">&larr; Retour</a>
+        <h1>Session multi-locuteur</h1>
+        <span class="badge">Live + Diarisation</span>
+    </div>
+
+    <div class="container">
+        <div class="error-banner" id="errorBanner"></div>
+
+        <!-- Phase 1: Record -->
+        <div class="phase active" id="phaseRecord">
+            <div class="record-section">
+                <h2>&#128101; Enregistrer une s&eacute;ance</h2>
+                <p>Enregistrez la s&eacute;ance avec transcription en direct, puis lancez l'analyse multi-locuteur.</p>
+
+                <div class="model-row">
+                    <label>Mod&egrave;le temps r&eacute;el</label>
+                    <select id="modelSelect"></select>
+                </div>
+
+                <button class="btn-session start" id="btnStartSession">&#127908; D&eacute;marrer la s&eacute;ance</button>
+                <button class="btn-session stop" id="btnStopSession" style="display:none">&#9632; Fin de s&eacute;ance</button>
+
+                <div class="live-panel" id="livePanel">
+                    <div class="live-header">
+                        <div class="live-indicator">
+                            <div class="dot-pulse"></div>
+                            <span>S&eacute;ance en cours</span>
+                        </div>
+                        <div class="live-duration" id="liveDuration">00:00</div>
+                    </div>
+                    <div class="live-transcript placeholder" id="liveTranscript">Transcription en temps r&eacute;el...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Phase 2: Processing -->
+        <div class="phase" id="phaseProcess">
+            <div class="progress-section">
+                <h2>Analyse en cours...</h2>
+                <div class="steps">
+                    <div class="step" id="step1">
+                        <div class="step-num">1</div>
+                        <div class="step-name">Transcription</div>
+                        <div class="step-detail">whisperX large-v3</div>
+                    </div>
+                    <div class="step" id="step2">
+                        <div class="step-num">2</div>
+                        <div class="step-name">Alignement</div>
+                        <div class="step-detail">wav2vec2 word-level</div>
+                    </div>
+                    <div class="step" id="step3">
+                        <div class="step-num">3</div>
+                        <div class="step-name">Diarisation</div>
+                        <div class="step-detail">pyannote community-1</div>
+                    </div>
+                </div>
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-text" id="progressText">Pr&eacute;paration...</div>
+            </div>
+        </div>
+
+        <!-- Phase 3: Results (Quill Meeting style) -->
+        <div class="phase" id="phaseResult">
+            <div class="result-section">
+                <div class="result-header">
+                    <h2>&#128196; Transcription de la s&eacute;ance</h2>
+                    <div class="result-stats">
+                        <div class="result-stat">
+                            <div class="result-stat-value" id="statDuration">-</div>
+                            <div class="result-stat-label">Dur&eacute;e</div>
+                        </div>
+                        <div class="result-stat">
+                            <div class="result-stat-value" id="statSpeakers">-</div>
+                            <div class="result-stat-label">Locuteurs</div>
+                        </div>
+                        <div class="result-stat">
+                            <div class="result-stat-value" id="statTurns">-</div>
+                            <div class="result-stat-label">Tours</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="result-toolbar">
+                    <button class="btn-export" onclick="exportTxt()">&#128196; Exporter TXT</button>
+                    <button class="btn-export" onclick="exportJson()">&#128190; Exporter JSON</button>
+                    <button class="btn-export" onclick="copyAll()">&#128203; Copier</button>
+                    <button class="btn-export" onclick="newSession()">&#128260; Nouvelle session</button>
+                </div>
+
+                <div class="speakers-panel" id="speakersPanel"></div>
+                <div class="turns-list" id="turnsList"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+    <script>
+        let capture = null;
+        let ws = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let startTime = null;
+        let durationTimer = null;
+        let fullText = '';
+        let currentJobId = null;
+        let pollTimer = null;
+        let resultData = null;
+        let speakerNames = {};
+        let speakerMap = {};
+
+        const btnStart = document.getElementById('btnStartSession');
+        const btnStop = document.getElementById('btnStopSession');
+        const livePanel = document.getElementById('livePanel');
+        const liveTranscript = document.getElementById('liveTranscript');
+        const liveDuration = document.getElementById('liveDuration');
+        const modelSelect = document.getElementById('modelSelect');
+
+        // Charger la liste des modèles
+        fetch('/api/models').then(r => r.json()).then(data => {
+            data.models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.name;
+                opt.textContent = `${m.name}  (${m.size})`;
+                if (m.name === data.default) opt.selected = true;
+                modelSelect.appendChild(opt);
+            });
+        });
+
+        function showPhase(id) {
+            document.querySelectorAll('.phase').forEach(p => p.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+        }
+
+        function showError(msg) {
+            const b = document.getElementById('errorBanner');
+            b.textContent = msg;
+            b.style.display = 'block';
+        }
+
+        btnStart.addEventListener('click', async () => {
+            document.getElementById('errorBanner').style.display = 'none';
+
+            try {
+                capture = await createAudioCapture(4);
+            } catch (err) {
+                showError("Micro inaccessible. V\u00e9rifiez les permissions.");
+                return;
+            }
+
+            // MediaRecorder pour sauvegarder l'audio complet
+            mediaRecorder = createMediaRecorder(capture.stream);
+            audioChunks = [];
+            mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+            mediaRecorder.start(1000);
+
+            // WebSocket pour transcription live
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const selectedModel = modelSelect.value;
+            ws = new WebSocket(`${proto}//${location.host}/ws/realtime?model=${encodeURIComponent(selectedModel)}`);
+            ws.binaryType = 'arraybuffer';
+
+            ws.onopen = () => {
+                fullText = '';
+                liveTranscript.textContent = '';
+                liveTranscript.classList.remove('placeholder');
+
+                btnStart.style.display = 'none';
+                btnStop.style.display = 'inline-flex';
+                livePanel.classList.add('active');
+
+                startTime = Date.now();
+                durationTimer = setInterval(() => {
+                    const s = Math.floor((Date.now() - startTime) / 1000);
+                    liveDuration.textContent = formatTime(s);
+                }, 1000);
+            };
+
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'transcript' && msg.full_text) {
+                    fullText = msg.full_text;
+                    liveTranscript.textContent = fullText;
+                    liveTranscript.scrollTop = liveTranscript.scrollHeight;
+                }
+            };
+
+            capture.workletNode.port.onmessage = (event) => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(event.data.buffer);
+                }
+            };
+        });
+
+        btnStop.addEventListener('click', async () => {
+            // Stop recording
+            if (durationTimer) { clearInterval(durationTimer); durationTimer = null; }
+            destroyAudioCapture(capture);
+            capture = null;
+            if (ws) { ws.close(); ws = null; }
+
+            btnStop.style.display = 'none';
+
+            // Get recorded audio
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+            await new Promise(r => setTimeout(r, 500)); // wait for last chunks
+
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+
+            // Upload and start diarization
+            showPhase('phaseProcess');
+            const formData = new FormData();
+            formData.append('file', audioBlob, 'session.webm');
+            formData.append('min_speakers', '2');
+            formData.append('max_speakers', '5');
+            formData.append('language', 'fr');
+
+            try {
+                const resp = await fetch('/api/diarize', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (data.error) { showError(data.error); showPhase('phaseRecord'); return; }
+                currentJobId = data.job_id;
+                startPolling();
+            } catch (err) {
+                showError("Erreur lors de l'envoi: " + err.message);
+                showPhase('phaseRecord');
+            }
+        });
+
+        function startPolling() {
+            pollTimer = setInterval(async () => {
+                try {
+                    const resp = await fetch(`/api/diarize/${currentJobId}`);
+                    const data = await resp.json();
+                    updateProgress(data);
+
+                    if (data.status === 'done') {
+                        clearInterval(pollTimer);
+                        resultData = data.result;
+                        speakerNames = data.speaker_names || {};
+                        showResults();
+                    } else if (data.status === 'error') {
+                        clearInterval(pollTimer);
+                        showError("Erreur: " + data.error);
+                        showPhase('phaseRecord');
+                    }
+                } catch (err) { /* retry */ }
+            }, 2000);
+        }
+
+        function updateProgress(data) {
+            const step = data.step || 1;
+            const pct = data.progress || 0;
+
+            for (let i = 1; i <= 3; i++) {
+                const el = document.getElementById('step' + i);
+                el.classList.remove('active', 'done');
+                if (i < step) el.classList.add('done');
+                else if (i === step) el.classList.add('active');
+            }
+
+            const overall = ((step - 1) * 33.3) + (pct * 0.333);
+            document.getElementById('progressFill').style.width = Math.min(overall, 100) + '%';
+            document.getElementById('progressText').textContent = data.step_name || 'Traitement...';
+        }
+
+        function showResults() {
+            showPhase('phaseResult');
+
+            const turns = resultData.turns;
+            const speakers = resultData.speakers;
+
+            // Build speaker map
+            speakerMap = {};
+            speakers.forEach((s, i) => { speakerMap[s] = i; });
+
+            // Stats
+            if (turns.length > 0) {
+                const totalDuration = turns[turns.length - 1].end;
+                document.getElementById('statDuration').textContent = formatDuration(totalDuration);
+            }
+            document.getElementById('statSpeakers').textContent = speakers.length;
+            document.getElementById('statTurns').textContent = turns.length;
+
+            // Speaker rename panel
+            const panel = document.getElementById('speakersPanel');
+            panel.innerHTML = '<label>Locuteurs</label>';
+            speakers.forEach((s, i) => {
+                const div = document.createElement('div');
+                div.className = 'speaker-rename';
+                div.innerHTML = `
+                    <div class="speaker-dot" style="background:${getSpeakerColor(i)}"></div>
+                    <input type="text" value="${speakerNames[s] || s}" data-speaker="${s}"
+                           placeholder="${s}" />
+                `;
+                div.querySelector('input').addEventListener('change', async (e) => {
+                    const newName = e.target.value.trim() || s;
+                    speakerNames[s] = newName;
+                    await fetch('/api/rename-speaker', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ job_id: currentJobId, speaker_id: s, new_name: newName })
+                    });
+                    renderTurns();
+                });
+                panel.appendChild(div);
+            });
+
+            renderTurns();
+        }
+
+        function renderTurns() {
+            renderQuillTranscript(
+                document.getElementById('turnsList'),
+                resultData.turns,
+                speakerNames,
+                speakerMap
+            );
+        }
+
+        function exportTxt() {
+            window.open(`/api/export/${currentJobId}/txt`, '_blank');
+        }
+        function exportJson() {
+            window.open(`/api/export/${currentJobId}/json`, '_blank');
+        }
+        function copyAll() {
+            const turns = resultData.turns;
+            const text = turns.map(t => {
+                const name = speakerNames[t.speaker] || t.speaker;
+                return `[${formatTime(t.start)}] ${name} : ${t.text}`;
+            }).join('\n');
+            navigator.clipboard.writeText(text);
+        }
+        function newSession() {
+            resultData = null;
+            speakerNames = {};
+            currentJobId = null;
+            fullText = '';
+            btnStart.style.display = 'inline-flex';
+            livePanel.classList.remove('active');
+            showPhase('phaseRecord');
+        }
+    </script>
+</body>
+</html>

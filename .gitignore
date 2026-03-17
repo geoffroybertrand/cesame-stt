@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+.env
+recordings/
+*.wav
+*.mp3
+*.m4a
+.DS_Store
+*.egg-info/
+dist/
+build/
