@@ -1,0 +1,26 @@
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+
+ENV RUNNING_IN_DOCKER=1
+ENV DEBIAN_FRONTEND=noninteractive
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 python3.11-venv python3-pip \
+    ffmpeg git \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python3
+
+WORKDIR /app
+
+# Python dependencies
+COPY requirements-gpu.txt .
+RUN python3 -m pip install --no-cache-dir --upgrade pip && \
+    python3 -m pip install --no-cache-dir -r requirements-gpu.txt
+
+# Application code
+COPY . .
+RUN mkdir -p recordings
+
+EXPOSE 8000
+
+CMD ["python3", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

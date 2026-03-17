@@ -39,10 +39,12 @@ def _transcribe_faster_whisper(audio_data: np.ndarray, model_id: str) -> str:
     global _fw_models
     if model_id not in _fw_models:
         from faster_whisper import WhisperModel
+        fw_device = "cuda" if config.HAS_CUDA else "cpu"
+        fw_compute = "float16" if config.HAS_CUDA else "int8"
         _fw_models[model_id] = WhisperModel(
             model_id,
-            device="cpu",
-            compute_type="int8",
+            device=fw_device,
+            compute_type=fw_compute,
         )
 
     segments, _ = _fw_models[model_id].transcribe(

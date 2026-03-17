@@ -24,9 +24,69 @@ def convert_to_wav(audio_path: str) -> str:
 
 
 def get_device():
+    if torch.cuda.is_available():
+        return "cuda"
     if torch.backends.mps.is_available():
         return "mps"
     return "cpu"
+
+
+def _transcribe_mlx(audio_path: str, language: str) -> list:
+    """Transcription via mlx-whisper (GPU Metal Apple Silicon)."""
+    import mlx_whisper
+
+    result = mlx_whisper.transcribe(
+        audio_path,
+        path_or_hf_repo=config.get_model_id(config.WHISPER_MODEL_DIARIZATION),
+        language=language,
+        word_timestamps=True,
+        verbose=False,
+    )
+    segments = []
+    for seg in result.get("segments", []):
+        segments.append({
+            "start": seg["start"],
+            "end": seg["end"],
+            "text": seg.get("text", "").strip(),
+            "words": [
+                {"start": w["start"], "end": w["end"], "word": w["word"]}
+                for w in seg.get("words", [])
+            ],
+        })
+    return segments
+
+
+def _transcribe_faster_whisper(audio_path: str, language: str, device: str) -> list:
+    """Transcription via faster-whisper (CPU ou CUDA)."""
+    if device == "cuda":
+        fw_device, compute_type = "cuda", "float16"
+    else:
+        fw_device, compute_type = "cpu", "int8"
+
+    model = WhisperModel(
+        config.WHISPER_MODEL_DIARIZATION,
+        device=fw_device,
+        compute_type=compute_type,
+    )
+    segments_raw, _ = model.transcribe(
+        audio_path,
+        language=language,
+        beam_size=5,
+        word_timestamps=True,
+    )
+    segments = []
+    for seg in segments_raw:
+        segments.append({
+            "start": seg.start,
+            "end": seg.end,
+            "text": seg.text.strip(),
+            "words": [
+                {"start": w.start, "end": w.end, "word": w.word}
+                for w in (seg.words or [])
+            ],
+        })
+    del model
+    return segments
 
 
 def transcribe_and_diarize(
@@ -50,32 +110,12 @@ def transcribe_and_diarize(
         if progress_callback:
             progress_callback(step, name, pct)
 
-    # Étape 1 : Transcription avec faster-whisper
+    # Étape 1 : Transcription
     notify(1, "Transcription", 0)
-    model = WhisperModel(
-        config.WHISPER_MODEL_DIARIZATION,
-        device="cpu",
-        compute_type="int8",
-    )
-    segments_raw, info = model.transcribe(
-        audio_path,
-        language=language,
-        beam_size=5,
-        word_timestamps=True,
-    )
-    # Matérialiser les segments (le générateur ne peut être lu qu'une fois)
-    segments = []
-    for seg in segments_raw:
-        segments.append({
-            "start": seg.start,
-            "end": seg.end,
-            "text": seg.text.strip(),
-            "words": [
-                {"start": w.start, "end": w.end, "word": w.word}
-                for w in (seg.words or [])
-            ],
-        })
-    del model
+    if config.IS_MACOS_NATIVE:
+        segments = _transcribe_mlx(audio_path, language)
+    else:
+        segments = _transcribe_faster_whisper(audio_path, language, device)
     notify(1, "Transcription", 100)
 
     # Étape 2 : Diarisation avec pyannote

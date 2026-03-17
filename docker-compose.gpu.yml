@@ -1,0 +1,24 @@
+services:
+  cesame-stt:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    container_name: cesame-stt-gpu
+    ports:
+      - "8000:8000"
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - ./recordings:/app/recordings
+      - huggingface-cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:
