@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 
 import torch
+import torch.serialization
 import numpy as np
 from faster_whisper import WhisperModel
 from pyannote.audio import Pipeline
@@ -112,15 +113,21 @@ def transcribe_and_diarize(
 
     # Étape 1 : Transcription
     notify(1, "Transcription", 0)
+    # Support language="auto" : passer None pour détection automatique
+    transcribe_language = None if language == "auto" else language
     if config.IS_MACOS_NATIVE:
-        segments = _transcribe_mlx(audio_path, language)
+        segments = _transcribe_mlx(audio_path, transcribe_language)
     else:
-        segments = _transcribe_faster_whisper(audio_path, language, device)
+        segments = _transcribe_faster_whisper(audio_path, transcribe_language, device)
     notify(1, "Transcription", 100)
 
     # Étape 2 : Diarisation avec pyannote
     notify(2, "Diarisation", 0)
     diarize_device = torch.device(device)
+
+    # PyTorch 2.6+ : autoriser le chargement des poids pyannote
+    torch.serialization.add_safe_globals([torch.torch_version.TorchVersion])
+
     pipeline = Pipeline.from_pretrained(
         "pyannote/speaker-diarization-3.1",
         use_auth_token=hf_token,

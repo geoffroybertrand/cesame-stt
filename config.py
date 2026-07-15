@@ -1,6 +1,16 @@
 import os
 import platform
 
+# Charger le fichier .env s'il existe
+from pathlib import Path as _Path
+_env_path = _Path(__file__).parent / ".env"
+if _env_path.exists():
+    for _line in _env_path.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _key, _, _val = _line.partition("=")
+            os.environ.setdefault(_key.strip(), _val.strip())
+
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
 
 # Détection de l'environnement d'exécution

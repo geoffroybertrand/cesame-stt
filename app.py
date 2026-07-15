@@ -244,6 +244,46 @@ async def _run_diarization(
         jobs[job_id]["error"] = str(e)
 
 
+@app.post("/api/diarize-path")
+async def start_diarization_from_path(data: dict):
+    """Démarre la diarisation depuis un chemin de fichier (volume partagé Docker)."""
+    if not config.HF_TOKEN:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Token HuggingFace non configuré. Définissez HF_TOKEN."},
+        )
+
+    audio_path = data.get("audio_path")
+    if not audio_path or not os.path.exists(audio_path):
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Fichier non trouvé: {audio_path}"},
+        )
+
+    min_speakers = int(data.get("min_speakers", 2))
+    max_speakers = int(data.get("max_speakers", 5))
+    language = data.get("language", "fr")
+
+    job_id = str(uuid.uuid4())[:8]
+
+    jobs[job_id] = {
+        "status": "processing",
+        "step": 1,
+        "step_name": "Transcription",
+        "progress": 0,
+        "audio_file": audio_path,
+        "result": None,
+        "error": None,
+        "speaker_names": {},
+    }
+
+    asyncio.create_task(
+        _run_diarization(job_id, audio_path, min_speakers, max_speakers, language)
+    )
+
+    return {"job_id": job_id}
+
+
 @app.get("/api/diarize/{job_id}")
 async def get_diarization_status(job_id: str):
     if job_id not in jobs:
