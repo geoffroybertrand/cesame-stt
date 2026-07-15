@@ -6,7 +6,7 @@ numpy
 soundfile
 faster-whisper
 pyannote.audio>=3.3,<4.0
-torch
-torchaudio
+torch==2.4.1
+torchaudio==2.4.1
 transformers>=4.40,<4.45
 huggingface_hub>=0.24,<1.0
