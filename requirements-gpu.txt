@@ -15,4 +15,8 @@ huggingface_hub>=0.24,<1.0
 # seule fois au premier chargement, a besoin de torch + transformers ; le
 # plafond transformers<4.45 a donc été levé (pyannote ne l'épingle pas).
 # ⚠️ Poids sous licence NON COMMERCIALE (Nyra Health) — cf. README.
+# ⚠️ CrisperWhisper exige le fork « ctranslate2-crisperwhisper », qui fournit
+# le même module que le CTranslate2 amont de faster-whisper : le Dockerfile
+# le réinstalle EN DERNIER (l'ordre de pip ne suffit pas). Hors Docker,
+# refaire à la main : pip uninstall ctranslate2 && pip install ctranslate2-crisperwhisper
 crisperwhisper[ct2]

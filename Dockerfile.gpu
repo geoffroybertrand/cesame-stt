@@ -22,7 +22,19 @@ WORKDIR /app
 # Python dependencies
 COPY requirements-gpu.txt .
 RUN python3 -m pip install --no-cache-dir --upgrade pip && \
-    python3 -m pip install --no-cache-dir -r requirements-gpu.txt
+    python3 -m pip install --no-cache-dir -r requirements-gpu.txt && \
+    # faster-whisper dépend de CTranslate2 amont, CrisperWhisper de son fork
+    # (APIs prefill / forward_step / set_alignment_heads /
+    # generate_greedy_with_attention). Les deux distributions fournissent le
+    # MÊME module « ctranslate2 » : la dernière installée écrase l'autre, et
+    # l'ordre choisi par pip n'est pas garanti. On réinstalle donc le fork en
+    # dernier, proprement — il est un surensemble de l'amont, faster-whisper
+    # continue de fonctionner avec.
+    python3 -m pip uninstall -y ctranslate2 ctranslate2-crisperwhisper && \
+    python3 -m pip install --no-cache-dir ctranslate2-crisperwhisper && \
+    # Échoue le build si l'amont a repris la place (plutôt que de le
+    # découvrir au premier préchargement en production).
+    python3 -c "import importlib.metadata as m; d=m.packages_distributions().get('ctranslate2', []); assert 'ctranslate2-crisperwhisper' in d, 'CTranslate2 fourni par %s, fork CrisperWhisper attendu' % d; print('[build] module ctranslate2 fourni par', d)"
 
 # Application code
 COPY . .

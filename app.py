@@ -118,6 +118,22 @@ async def health_check():
     except ImportError:
         pass
 
+    # Quelle distribution fournit le module « ctranslate2 » ? faster-whisper
+    # installe l'amont, CrisperWhisper son fork : les deux se disputent le
+    # même module, et l'amont fait échouer le préchargement CrisperWhisper.
+    try:
+        from importlib.metadata import packages_distributions
+
+        import ctranslate2
+
+        checks["ctranslate2"] = getattr(ctranslate2, "__version__", "?")
+        checks["ctranslate2_dist"] = (
+            ", ".join(packages_distributions().get("ctranslate2", [])) or None
+        )
+    except Exception:
+        checks["ctranslate2"] = None
+        checks["ctranslate2_dist"] = None
+
     return checks
 
 
