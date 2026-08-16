@@ -1,4 +1,8 @@
-FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+# Base -cudnn-runtime : CTranslate2 (faster-whisper ET CrisperWhisper) exige
+# cuDNN 9. Sur la base -runtime simple, ça ne fonctionnait que grâce au cuDNN
+# embarqué par la roue torch et préchargé par l'« import torch » de config.py
+# — dépendance accidentelle qu'on ne veut pas garder avec deux consommateurs.
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
 ENV RUNNING_IN_DOCKER=1
 ENV DEBIAN_FRONTEND=noninteractive

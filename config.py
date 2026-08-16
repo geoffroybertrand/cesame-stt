@@ -44,6 +44,37 @@ WHISPER_MODELS = {
 DEFAULT_MODEL_REALTIME = "large-v3-turbo" if (IS_MACOS_NATIVE or HAS_CUDA) else "small"
 WHISPER_MODEL_DIARIZATION = "large-v3"
 
+# --- Moteur ASR du pipeline batch (/api/diarize) -------------------------
+# "faster-whisper" : large-v3 via CTranslate2 (historique, licence MIT).
+# "crisperwhisper" : CrisperWhisper 2.0 via CTranslate2 — timestamps au mot
+#   (~30 ms), long-form sans artefacts, modes verbatim/intended.
+#   ⚠️ Poids sous licence Nyra Health NON COMMERCIALE (recherche et usage
+#   non commercial uniquement) : à revoir avant toute monétisation du
+#   service — cf. README. Le temps réel (/ws/realtime) reste sur Whisper.
+STT_ENGINE = os.environ.get("STT_ENGINE", "faster-whisper").strip().lower()
+
+# Modèle du moteur choisi ; vide → défaut du moteur
+# (faster-whisper : "large-v3" ; crisperwhisper : "large").
+STT_MODEL = os.environ.get("STT_MODEL", "").strip()
+
+# CrisperWhisper : "verbatim" (fidèle : hésitations, répétitions, faux
+# départs) ou "intended" (texte propre, plus adapté au découpage RAG).
+STT_MODE = os.environ.get("STT_MODE", "verbatim").strip().lower()
+
+# CrisperWhisper : modèle brouillon du décodage spéculatif (ex. "turbo",
+# +1,3-1,4× de vitesse, ~1,6 Go de VRAM en plus). Vide → désactivé.
+STT_DRAFT_MODEL = os.environ.get("STT_DRAFT_MODEL", "").strip()
+
+# Charger les modèles au démarrage plutôt qu'au premier job (le premier
+# chargement coûte 10-20 s, et le téléchargement initial bien davantage).
+STT_PRELOAD = os.environ.get("STT_PRELOAD", "1").strip().lower() not in ("0", "false", "no")
+
+# Un seul job GPU à la fois : deux transcriptions simultanées chargeraient
+# deux fois les modèles en VRAM.
+STT_MAX_CONCURRENCY = max(1, int(os.environ.get("STT_MAX_CONCURRENCY", "1")))
+
+CRISPERWHISPER_DEFAULT_MODEL = "large"
+
 RECORDINGS_DIR = "recordings"
 CHUNK_DURATION_S = 4
 OVERLAP_DURATION_S = 0.5

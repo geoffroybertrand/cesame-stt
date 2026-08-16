@@ -1,13 +1,8 @@
 import os
 import subprocess
-import tempfile
 
-import torch
-import torch.serialization
-import numpy as np
-from faster_whisper import WhisperModel
-from pyannote.audio import Pipeline
 import config
+from stt import engines
 
 
 def convert_to_wav(audio_path: str) -> str:
@@ -25,11 +20,7 @@ def convert_to_wav(audio_path: str) -> str:
 
 
 def get_device():
-    if torch.cuda.is_available():
-        return "cuda"
-    if torch.backends.mps.is_available():
-        return "mps"
-    return "cpu"
+    return engines.get_device()
 
 
 def _transcribe_mlx(audio_path: str, language: str) -> list:
@@ -57,39 +48,6 @@ def _transcribe_mlx(audio_path: str, language: str) -> list:
     return segments
 
 
-def _transcribe_faster_whisper(audio_path: str, language: str, device: str) -> list:
-    """Transcription via faster-whisper (CPU ou CUDA)."""
-    if device == "cuda":
-        fw_device, compute_type = "cuda", "float16"
-    else:
-        fw_device, compute_type = "cpu", "int8"
-
-    model = WhisperModel(
-        config.WHISPER_MODEL_DIARIZATION,
-        device=fw_device,
-        compute_type=compute_type,
-    )
-    segments_raw, _ = model.transcribe(
-        audio_path,
-        language=language,
-        beam_size=5,
-        word_timestamps=True,
-    )
-    segments = []
-    for seg in segments_raw:
-        segments.append({
-            "start": seg.start,
-            "end": seg.end,
-            "text": seg.text.strip(),
-            "words": [
-                {"start": w.start, "end": w.end, "word": w.word}
-                for w in (seg.words or [])
-            ],
-        })
-    del model
-    return segments
-
-
 def transcribe_and_diarize(
     audio_path: str,
     hf_token: str,
@@ -97,11 +55,15 @@ def transcribe_and_diarize(
     max_speakers: int = 5,
     language: str = "fr",
     progress_callback=None,
+    engine: str = None,
+    mode: str = None,
 ):
     """Pipeline complet : transcription + diarisation.
 
-    Utilise faster-whisper pour la transcription et pyannote directement
-    pour la diarisation (sans passer par whisperX).
+    Transcription par le moteur configuré (stt/engines.py : faster-whisper
+    ou CrisperWhisper 2.0), diarisation par pyannote, puis attribution des
+    locuteurs AU MOT quand les timestamps le permettent — un changement de
+    locuteur en milieu de phrase n'est donc plus perdu.
     """
     # Convertir en WAV si nécessaire (webm, m4a, mp3, etc.)
     audio_path = convert_to_wav(audio_path)
@@ -115,34 +77,22 @@ def transcribe_and_diarize(
     notify(1, "Transcription", 0)
     # Support language="auto" : passer None pour détection automatique
     transcribe_language = None if language == "auto" else language
-    if config.IS_MACOS_NATIVE:
-        segments = _transcribe_mlx(audio_path, transcribe_language)
-    else:
-        segments = _transcribe_faster_whisper(audio_path, transcribe_language, device)
+    segments = engines.transcribe(
+        audio_path, transcribe_language, engine=engine, mode=mode, device=device
+    )
     notify(1, "Transcription", 100)
 
-    # Étape 2 : Diarisation avec pyannote
+    # Étape 2 : Diarisation avec pyannote (pipeline mis en cache)
     notify(2, "Diarisation", 0)
-    diarize_device = torch.device(device)
-
-    # PyTorch 2.6+ : autoriser le chargement des poids pyannote
-    torch.serialization.add_safe_globals([torch.torch_version.TorchVersion])
-
-    pipeline = Pipeline.from_pretrained(
-        "pyannote/speaker-diarization-3.1",
-        use_auth_token=hf_token,
-    )
-    pipeline.to(diarize_device)
-
+    pipeline = engines.get_diarization_pipeline(hf_token, device)
     diarization = pipeline(
         audio_path,
         min_speakers=min_speakers,
         max_speakers=max_speakers,
     )
-    del pipeline
     notify(2, "Diarisation", 100)
 
-    # Étape 3 : Associer locuteurs aux segments transcrits
+    # Étape 3 : Associer locuteurs aux mots (repli : aux segments)
     notify(3, "Association locuteurs", 0)
 
     # Construire la timeline des locuteurs
@@ -154,16 +104,49 @@ def transcribe_and_diarize(
             "speaker": speaker,
         })
 
-    # Associer chaque segment transcrit au locuteur dominant
-    for seg in segments:
-        seg["speaker"] = _find_speaker(seg["start"], seg["end"], speaker_timeline)
-
+    turns = _assign_speakers(segments, speaker_timeline)
     notify(3, "Association locuteurs", 100)
 
-    turns = format_transcript(segments)
     speakers = set(t["speaker"] for t in turns)
-
     return {"turns": turns, "speakers": sorted(speakers)}
+
+
+def _assign_speakers(segments: list, speaker_timeline: list) -> list:
+    """Attribue les locuteurs et construit les tours de parole.
+
+    Voie principale : mot à mot (précision des timestamps CrisperWhisper
+    ~30 ms), ce qui découpe correctement les phrases où deux personnes
+    s'enchaînent. Repli sur l'attribution par segment si le moteur n'a pas
+    fourni de timestamps de mots.
+    """
+    words = []
+    for seg in segments:
+        for w in seg.get("words") or []:
+            if w.get("start") is None or w.get("end") is None:
+                continue
+            text = (w.get("word") or "").strip()
+            if text:
+                words.append({"start": w["start"], "end": w["end"], "word": text})
+
+    if not words:
+        for seg in segments:
+            seg["speaker"] = _find_speaker(seg["start"], seg["end"], speaker_timeline)
+        return format_transcript(segments)
+
+    turns = []
+    for w in words:
+        speaker = _find_speaker(w["start"], w["end"], speaker_timeline)
+        if turns and turns[-1]["speaker"] == speaker:
+            turns[-1]["text"] += " " + w["word"]
+            turns[-1]["end"] = w["end"]
+        else:
+            turns.append({
+                "speaker": speaker,
+                "text": w["word"],
+                "start": w["start"],
+                "end": w["end"],
+            })
+    return turns
 
 
 def _find_speaker(seg_start, seg_end, speaker_timeline):
@@ -182,11 +165,13 @@ def _find_speaker(seg_start, seg_end, speaker_timeline):
 
 
 def format_transcript(segments):
-    """Formater les segments en liste de tours de parole."""
+    """Formate des segments (déjà porteurs d'un « speaker ») en tours de
+    parole — repli utilisé quand aucun timestamp de mot n'est disponible."""
     turns = []
     current_speaker = None
     current_text = []
     current_start = None
+    current_end = None
 
     for seg in segments:
         speaker = seg.get("speaker", "INCONNU")
@@ -199,7 +184,7 @@ def format_transcript(segments):
                     "speaker": current_speaker,
                     "text": " ".join(current_text),
                     "start": current_start,
-                    "end": start,
+                    "end": current_end,
                 })
             current_speaker = speaker
             current_text = [text] if text else []
@@ -207,6 +192,7 @@ def format_transcript(segments):
         else:
             if text:
                 current_text.append(text)
+        current_end = seg.get("end", start)
 
     if current_speaker and current_text:
         turns.append({

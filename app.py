@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 
 import config
+from stt import engines
 from stt.realtime import transcribe_chunk
 from stt.diarization import transcribe_and_diarize, export_txt, export_json
 
@@ -21,8 +22,34 @@ app = FastAPI(title="CESAME STT Test")
 # Stockage des jobs de diarisation
 jobs: dict = {}
 
+# Un seul job GPU à la fois : deux transcriptions simultanées chargeraient
+# deux fois les modèles en VRAM. Les suivantes attendent leur tour.
+_gpu_slots = asyncio.Semaphore(config.STT_MAX_CONCURRENCY)
+
+# État du préchargement, exposé par /api/health
+_preload_state: dict = {"asr": False, "diarization": False, "error": None}
+
 # Créer le dossier recordings
 Path(config.RECORDINGS_DIR).mkdir(exist_ok=True)
+
+
+@app.on_event("startup")
+async def _preload_models():
+    """Charge les modèles au démarrage (le premier chargement coûte 10-20 s,
+    et bien davantage au tout premier lancement : téléchargement + conversion
+    CTranslate2). Sans cela, c'est la première transcription qui paie."""
+    if not config.STT_PRELOAD:
+        return
+    global _preload_state
+    _preload_state = await asyncio.to_thread(engines.preload, config.HF_TOKEN)
+    if _preload_state.get("error"):
+        print(f"[stt] préchargement incomplet : {_preload_state['error']}")
+    else:
+        print(
+            f"[stt] modèles préchargés — moteur={engines.resolve_engine()} "
+            f"modèle={engines.model_name(engines.resolve_engine())} "
+            f"device={engines.get_device()}"
+        )
 
 
 # --- Pages statiques ---
@@ -49,14 +76,26 @@ async def diarization_page():
 
 @app.get("/api/health")
 async def health_check():
-    """Vérifie la disponibilité des composants."""
+    """Vérifie la disponibilité des composants et expose la configuration
+    ASR réellement active (device compris : un repli silencieux en CPU
+    passait jusqu'ici totalement inaperçu)."""
     import shutil
 
+    engine = engines.resolve_engine()
     checks = {
         "mlx_whisper": False,
         "pyannote": False,
+        "crisperwhisper": False,
         "hf_token": bool(config.HF_TOKEN),
         "ffmpeg": shutil.which("ffmpeg") is not None,
+        "engine": engine,
+        "model": engines.model_name(engine),
+        "mode": engines.resolve_mode() if engine == "crisperwhisper" else None,
+        "draft_model": config.STT_DRAFT_MODEL or None,
+        "device": engines.get_device(),
+        "preloaded": engines.is_loaded(),
+        "preload_error": _preload_state.get("error"),
+        "max_concurrency": config.STT_MAX_CONCURRENCY,
     }
 
     try:
@@ -68,6 +107,12 @@ async def health_check():
     try:
         import pyannote.audio  # noqa: F401
         checks["pyannote"] = True
+    except ImportError:
+        pass
+
+    try:
+        import crisperwhisper  # noqa: F401
+        checks["crisperwhisper"] = True
     except ImportError:
         pass
 
@@ -181,6 +226,8 @@ async def start_diarization(
     min_speakers: int = Form(2),
     max_speakers: int = Form(5),
     language: str = Form("fr"),
+    engine: str = Form(""),
+    mode: str = Form(""),
 ):
     if not config.HF_TOKEN:
         return JSONResponse(
@@ -203,9 +250,10 @@ async def start_diarization(
     jobs[job_id] = {
         "status": "processing",
         "step": 1,
-        "step_name": "Transcription",
+        "step_name": "En attente",
         "progress": 0,
         "audio_file": saved_filename,
+        "engine": engines.resolve_engine(engine),
         "result": None,
         "error": None,
         "speaker_names": {},
@@ -213,14 +261,22 @@ async def start_diarization(
 
     # Lancer le traitement en arrière-plan
     asyncio.create_task(
-        _run_diarization(job_id, saved_path, min_speakers, max_speakers, language)
+        _run_diarization(
+            job_id, saved_path, min_speakers, max_speakers, language, engine, mode
+        )
     )
 
     return {"job_id": job_id}
 
 
 async def _run_diarization(
-    job_id: str, audio_path: str, min_speakers: int, max_speakers: int, language: str
+    job_id: str,
+    audio_path: str,
+    min_speakers: int,
+    max_speakers: int,
+    language: str,
+    engine: str = "",
+    mode: str = "",
 ):
     def progress_callback(step, step_name, pct):
         jobs[job_id]["step"] = step
@@ -228,15 +284,20 @@ async def _run_diarization(
         jobs[job_id]["progress"] = pct
 
     try:
-        result = await asyncio.to_thread(
-            transcribe_and_diarize,
-            audio_path,
-            config.HF_TOKEN,
-            min_speakers,
-            max_speakers,
-            language,
-            progress_callback,
-        )
+        # Le sémaphore sérialise les jobs : un seul jeu de modèles en VRAM.
+        async with _gpu_slots:
+            jobs[job_id]["step_name"] = "Transcription"
+            result = await asyncio.to_thread(
+                transcribe_and_diarize,
+                audio_path,
+                config.HF_TOKEN,
+                min_speakers,
+                max_speakers,
+                language,
+                progress_callback,
+                engine,
+                mode,
+            )
         jobs[job_id]["status"] = "done"
         jobs[job_id]["result"] = result
     except Exception as e:
@@ -263,22 +324,27 @@ async def start_diarization_from_path(data: dict):
     min_speakers = int(data.get("min_speakers", 2))
     max_speakers = int(data.get("max_speakers", 5))
     language = data.get("language", "fr")
+    engine = data.get("engine", "")
+    mode = data.get("mode", "")
 
     job_id = str(uuid.uuid4())[:8]
 
     jobs[job_id] = {
         "status": "processing",
         "step": 1,
-        "step_name": "Transcription",
+        "step_name": "En attente",
         "progress": 0,
         "audio_file": audio_path,
+        "engine": engines.resolve_engine(engine),
         "result": None,
         "error": None,
         "speaker_names": {},
     }
 
     asyncio.create_task(
-        _run_diarization(job_id, audio_path, min_speakers, max_speakers, language)
+        _run_diarization(
+            job_id, audio_path, min_speakers, max_speakers, language, engine, mode
+        )
     )
 
     return {"job_id": job_id}

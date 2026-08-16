@@ -8,5 +8,11 @@ faster-whisper
 pyannote.audio>=3.3,<4.0
 torch==2.4.1
 torchaudio==2.4.1
-transformers>=4.40,<4.45
+transformers>=4.40
 huggingface_hub>=0.24,<1.0
+# CrisperWhisper 2.0 (STT_ENGINE=crisperwhisper) — backend CTranslate2, le
+# même runtime que faster-whisper. La conversion CT2 du modèle, faite une
+# seule fois au premier chargement, a besoin de torch + transformers ; le
+# plafond transformers<4.45 a donc été levé (pyannote ne l'épingle pas).
+# ⚠️ Poids sous licence NON COMMERCIALE (Nyra Health) — cf. README.
+crisperwhisper[ct2]
