@@ -43,12 +43,14 @@ async def _preload_models():
     global _preload_state
     _preload_state = await asyncio.to_thread(engines.preload, config.HF_TOKEN)
     if _preload_state.get("error"):
-        print(f"[stt] préchargement incomplet : {_preload_state['error']}")
+        print(f"[stt] préchargement incomplet : {_preload_state['error']}", flush=True)
     else:
         print(
             f"[stt] modèles préchargés — moteur={engines.resolve_engine()} "
             f"modèle={engines.model_name(engines.resolve_engine())} "
-            f"device={engines.get_device()}"
+            f"device={engines.get_device()} "
+            f"diarisation={'oui' if _preload_state.get('diarization') else 'non'}",
+            flush=True,
         )
 
 

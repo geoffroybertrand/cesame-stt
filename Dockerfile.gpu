@@ -6,6 +6,9 @@ FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
 ENV RUNNING_IN_DOCKER=1
 ENV DEBIAN_FRONTEND=noninteractive
+# Sans cela, les logs applicatifs (print) restent dans le tampon stdout et
+# n'apparaissent jamais dans « docker logs ».
+ENV PYTHONUNBUFFERED=1
 
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \

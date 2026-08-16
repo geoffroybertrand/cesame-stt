@@ -1,6 +1,9 @@
 FROM python:3.11-slim
 
 ENV RUNNING_IN_DOCKER=1
+# Sans cela, les logs applicatifs (print) restent dans le tampon stdout et
+# n'apparaissent jamais dans « docker logs ».
+ENV PYTHONUNBUFFERED=1
 
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
