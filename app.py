@@ -246,6 +246,7 @@ async def start_diarization(
     language: str = Form("fr"),
     engine: str = Form(""),
     mode: str = Form(""),
+    num_speakers: int = Form(0),
 ):
     if not config.HF_TOKEN:
         return JSONResponse(
@@ -280,7 +281,8 @@ async def start_diarization(
     # Lancer le traitement en arrière-plan
     asyncio.create_task(
         _run_diarization(
-            job_id, saved_path, min_speakers, max_speakers, language, engine, mode
+            job_id, saved_path, min_speakers, max_speakers, language, engine, mode,
+            num_speakers,
         )
     )
 
@@ -295,6 +297,7 @@ async def _run_diarization(
     language: str,
     engine: str = "",
     mode: str = "",
+    num_speakers: int = 0,
 ):
     def progress_callback(step, step_name, pct):
         jobs[job_id]["step"] = step
@@ -315,6 +318,7 @@ async def _run_diarization(
                 progress_callback,
                 engine,
                 mode,
+                num_speakers,
             )
         jobs[job_id]["status"] = "done"
         jobs[job_id]["result"] = result

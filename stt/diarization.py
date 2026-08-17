@@ -57,6 +57,7 @@ def transcribe_and_diarize(
     progress_callback=None,
     engine: str = None,
     mode: str = None,
+    num_speakers: int = 0,
 ):
     """Pipeline complet : transcription + diarisation.
 
@@ -85,11 +86,17 @@ def transcribe_and_diarize(
     # Étape 2 : Diarisation avec pyannote (pipeline mis en cache)
     notify(2, "Diarisation", 0)
     pipeline = engines.get_diarization_pipeline(hf_token, device)
-    diarization = pipeline(
-        audio_path,
-        min_speakers=min_speakers,
-        max_speakers=max_speakers,
-    )
+    if num_speakers and num_speakers > 0:
+        # Nombre exact connu : de loin le réglage le plus déterminant pour la
+        # qualité. Laissé libre, pyannote invente des locuteurs sur les
+        # acquiescements et les variations de voix.
+        diarization = pipeline(audio_path, num_speakers=num_speakers)
+    else:
+        diarization = pipeline(
+            audio_path,
+            min_speakers=min_speakers,
+            max_speakers=max_speakers,
+        )
     notify(2, "Diarisation", 100)
 
     # Étape 3 : Associer locuteurs aux mots (repli : aux segments)
@@ -133,15 +140,18 @@ def _assign_speakers(segments: list, speaker_timeline: list) -> list:
             seg["speaker"] = _find_speaker(seg["start"], seg["end"], speaker_timeline)
         return format_transcript(segments)
 
+    for w in words:
+        w["speaker"] = _find_speaker(w["start"], w["end"], speaker_timeline)
+    _lisser_locuteurs(words)
+
     turns = []
     for w in words:
-        speaker = _find_speaker(w["start"], w["end"], speaker_timeline)
-        if turns and turns[-1]["speaker"] == speaker:
+        if turns and turns[-1]["speaker"] == w["speaker"]:
             turns[-1]["text"] += " " + w["word"]
             turns[-1]["end"] = w["end"]
         else:
             turns.append({
-                "speaker": speaker,
+                "speaker": w["speaker"],
                 "text": w["word"],
                 "start": w["start"],
                 "end": w["end"],
@@ -149,8 +159,41 @@ def _assign_speakers(segments: list, speaker_timeline: list) -> list:
     return turns
 
 
+def _lisser_locuteurs(mots: list, max_mots: int = 3, max_duree: float = 1.2) -> None:
+    """Absorbe les bascules isolées de locuteur.
+
+    Une poignée de mots attribuée à quelqu'un d'autre au milieu d'un tour est
+    presque toujours une erreur d'alignement : ce sont les acquiescements
+    (« ouais », « OK », « hmm ») que pyannote place à cheval, ou un mot
+    tombant dans un silence. On ne fusionne que si les deux voisins sont le
+    MÊME autre locuteur — une vraie prise de parole courte reste intacte."""
+    n = len(mots)
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and mots[j + 1]["speaker"] == mots[i]["speaker"]:
+            j += 1
+        avant = mots[i - 1]["speaker"] if i > 0 else None
+        apres = mots[j + 1]["speaker"] if j + 1 < n else None
+        duree = mots[j]["end"] - mots[i]["start"]
+        if (
+            avant is not None
+            and avant == apres
+            and avant != mots[i]["speaker"]
+            and (j - i + 1) <= max_mots
+            and duree <= max_duree
+        ):
+            for k in range(i, j + 1):
+                mots[k]["speaker"] = avant
+        i = j + 1
+
+
 def _find_speaker(seg_start, seg_end, speaker_timeline):
-    """Trouve le locuteur dominant pour un segment donné."""
+    """Locuteur dominant sur l'intervalle, par recouvrement.
+
+    Sans recouvrement (mot tombant dans un silence, ou juste avant une prise
+    de parole), on prend le locuteur le PLUS PROCHE dans le temps plutôt que
+    de produire un « INCONNU » qui coupe artificiellement le tour de parole."""
     overlaps = {}
     for st in speaker_timeline:
         overlap_start = max(seg_start, st["start"])
@@ -159,9 +202,15 @@ def _find_speaker(seg_start, seg_end, speaker_timeline):
             duration = overlap_end - overlap_start
             overlaps[st["speaker"]] = overlaps.get(st["speaker"], 0) + duration
 
-    if not overlaps:
+    if overlaps:
+        return max(overlaps, key=overlaps.get)
+    if not speaker_timeline:
         return "INCONNU"
-    return max(overlaps, key=overlaps.get)
+    proche = min(
+        speaker_timeline,
+        key=lambda st: min(abs(st["start"] - seg_end), abs(seg_start - st["end"])),
+    )
+    return proche["speaker"]
 
 
 def format_transcript(segments):
