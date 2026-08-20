@@ -1,9 +1,11 @@
 venv/
 __pycache__/
 *.pyc
-recordings/*.wav
-recordings/*.webm
-recordings/*.mp3
+# Tout le dossier, et pas une liste d'extensions : la liste precedente
+# (*.wav, *.webm, *.mp3) laissait passer les .mp4, et deux enregistrements de
+# seances reelles — 98 Mo — se retrouvaient CUITS DANS L'IMAGE, donc poussee
+# et deployee avec eux. Le Dockerfile recree le dossier vide de toute facon.
+recordings/
 .git/
 .env
 *.egg-info/
