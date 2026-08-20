@@ -46,7 +46,46 @@ Variables d'environnement (lues depuis `.env` ou l'environnement) :
 | `STT_MODE` | `verbatim` | CrisperWhisper : `verbatim` (hesitations, reprises) ou `intended` (texte lisse) |
 | `STT_DRAFT_MODEL` | vide | Modele brouillon du decodage speculatif (ex. `turbo`) : +1,3-1,4×, ~1,6 Go de VRAM |
 | `STT_PRELOAD` | `1` | Charger les modeles au demarrage plutot qu'au premier job |
-| `STT_MAX_CONCURRENCY` | `1` | Jobs GPU simultanes |
+| `STT_MAX_CONCURRENCY` | `1` | Jobs GPU simultanes (ingestion) |
+| `STT_DICTEE_MODEL` | `large-v3-turbo` | Modele de la dictee utilisateur — **toujours faster-whisper** |
+| `STT_DICTEE_CONCURRENCY` | `2` | Dictees simultanees, **file separee de l'ingestion** |
+| `STT_DICTEE_MAX_SECONDS` | `180` | Duree max d'une dictee |
+| `STT_DICTEE_MAX_BYTES` | `26214400` | Taille max de l'upload (25 Mo) |
+| `STT_HOTWORDS` | lexique du projet | Biais de vocabulaire de la dictee |
+
+### Dictee utilisateur — `POST /api/transcribe`
+
+Chemin court et synchrone pour le micro du chat : upload → texte, en une
+reponse. Ni diarisation, ni job asynchrone, ni ecriture persistante — tout
+transite par un repertoire temporaire detruit dans un `finally`, y compris en
+cas d'echec. Contrairement a `/api/diarize`, **rien n'atterrit dans
+`recordings/`** : ce sont des personnes qui decrivent leur detresse, et
+l'application leur promet que rien n'est conserve.
+
+```bash
+curl -s -X POST http://localhost:8000/api/transcribe -F "file=@dictee.webm"
+# {"text": "...", "duration": 8.6, "elapsed": 2.1}
+```
+
+Trois points de conception :
+
+- **File d'attente separee.** Le semaphore de la dictee est distinct de celui
+  de l'ingestion. Partages, une ingestion d'une heure gelerait le micro de
+  tous les utilisateurs pendant toute sa duree. Verifie : deux dictees
+  simultanees se chevauchent (17,9 s au mur pour 31,3 s cumulees), donc
+  CTranslate2 tolere les appels concurrents sur une meme instance.
+- **Toujours faster-whisper, jamais CrisperWhisper.** La licence de ce
+  dernier interdit explicitement « production or operational deployment » ;
+  servir des utilisateurs finaux en est. Whisper est sous MIT — et rend de
+  surcroit nativement un texte propre et ponctue, sans les hesitations, ce
+  qui est exactement ce qu'on veut dans un champ message.
+- **`vad_filter` + `hotwords` + `condition_on_previous_text=False`.** Le VAD
+  retire les silences, ou Whisper hallucine des phrases entieres — son echec
+  le plus connu, et inevitable quand quelqu'un hesite au micro. Les hotwords
+  biaisent le decodage vers le lexique du projet (solastalgie, eco-anxiete,
+  PRS, Nardone). ⚠️ Leur apport reste **a mesurer sur voix reelle** : sur de
+  la synthese vocale, `large-v3` transcrivait deja ces termes correctement
+  sans eux, donc le test realise ne prouve rien de leur utilite.
 
 `POST /api/diarize` accepte aussi les champs `engine` et `mode` pour comparer
 deux moteurs sur le meme fichier sans redeployer. `GET /api/health` expose la

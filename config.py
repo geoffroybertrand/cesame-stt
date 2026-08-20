@@ -75,6 +75,46 @@ STT_MAX_CONCURRENCY = max(1, int(os.environ.get("STT_MAX_CONCURRENCY", "1")))
 
 CRISPERWHISPER_DEFAULT_MODEL = "large"
 
+# --- Dictée utilisateur (POST /api/transcribe) ---------------------------
+# Chemin court et synchrone : mono-locuteur, sans diarisation, sans job.
+#
+# ⚠️ TOUJOURS faster-whisper, JAMAIS CrisperWhisper : les poids de ce dernier
+# sont sous licence non commerciale interdisant explicitement « production or
+# operational deployment ». Servir des utilisateurs finaux en est. Whisper est
+# sous MIT — et rend de surcroît nativement un texte propre et ponctué, sans
+# les hésitations, ce qui est exactement ce qu'on veut dans un champ message.
+STT_DICTEE_MODEL = os.environ.get("STT_DICTEE_MODEL", "large-v3-turbo").strip()
+
+# File d'attente SÉPARÉE de STT_MAX_CONCURRENCY : sans cela, une ingestion
+# d'une heure lancée depuis l'admin gèlerait le micro de tous les
+# utilisateurs pendant toute sa durée.
+STT_DICTEE_CONCURRENCY = max(1, int(os.environ.get("STT_DICTEE_CONCURRENCY", "2")))
+
+# Garde-fous, vérifiés AVANT de toucher au GPU.
+STT_DICTEE_MAX_SECONDS = max(10, int(os.environ.get("STT_DICTEE_MAX_SECONDS", "180")))
+STT_DICTEE_MAX_BYTES = max(
+    100_000, int(os.environ.get("STT_DICTEE_MAX_BYTES", str(25 * 1024 * 1024)))
+)
+
+# Biais de vocabulaire (faster-whisper ≥ 1.1). C'est le levier le plus direct
+# sur la fidélité : sans lui, le lexique du projet est systématiquement
+# massacré (« sola stalgie », « écho-anxiété », « Nardonne »).
+HOTWORDS_DEFAUT = (
+    "éco-anxiété, solastalgie, canicule, vague de chaleur, îlot de chaleur, "
+    "adaptation climatique, dérèglement climatique, Global Adaptation, PRS, "
+    "échelle de résolution, thérapie systémique et stratégique, Nardone, "
+    "Watzlawick, Palo Alto, LACT, SYPRENE, CERMES3, CNRS"
+)
+
+# ⚠️ Une variable DÉFINIE MAIS VIDE doit retomber sur le défaut, pas le
+# désactiver : les fichiers Compose passent `STT_HOTWORDS=${STT_HOTWORDS:-}`,
+# donc la variable existe et vaut "" dès qu'elle n'est pas renseignée. Avec un
+# simple os.environ.get(clé, défaut), le lexique se retrouvait desactivé en
+# silence partout — y compris en production.
+# Pour le désactiver réellement (comparaison A/B) : STT_HOTWORDS=none
+_hotwords = os.environ.get("STT_HOTWORDS", "").strip()
+STT_HOTWORDS = "" if _hotwords.lower() == "none" else (_hotwords or HOTWORDS_DEFAUT)
+
 RECORDINGS_DIR = "recordings"
 CHUNK_DURATION_S = 4
 OVERLAP_DURATION_S = 0.5

@@ -1,6 +1,8 @@
 import asyncio
 import json
 import os
+import shutil
+import tempfile
 import time
 import uuid
 from datetime import datetime
@@ -15,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 import config
 from stt import engines
 from stt.realtime import transcribe_chunk
-from stt.diarization import transcribe_and_diarize, export_txt, export_json
+from stt.diarization import transcribe_and_diarize, export_txt, export_json, convert_to_wav
 
 app = FastAPI(title="CESAME STT Test")
 
@@ -26,8 +28,15 @@ jobs: dict = {}
 # deux fois les modèles en VRAM. Les suivantes attendent leur tour.
 _gpu_slots = asyncio.Semaphore(config.STT_MAX_CONCURRENCY)
 
+# File d'attente SÉPARÉE pour la dictée utilisateur. C'est ce qui rend le
+# micro utilisable : partagée avec _gpu_slots, une ingestion d'une heure
+# lancée depuis l'admin gèlerait le micro de tous les utilisateurs pendant
+# toute sa durée. Les deux tiennent en VRAM sur le L4 (turbo ~2 Go +
+# CrisperWhisper large ~4 Go + pyannote ~2 Go, sur 24 Go disponibles).
+_dictee_slots = asyncio.Semaphore(config.STT_DICTEE_CONCURRENCY)
+
 # État du préchargement, exposé par /api/health
-_preload_state: dict = {"asr": False, "diarization": False, "error": None}
+_preload_state: dict = {"asr": False, "diarization": False, "dictee": False, "error": None}
 
 # Créer le dossier recordings
 Path(config.RECORDINGS_DIR).mkdir(exist_ok=True)
@@ -49,7 +58,8 @@ async def _preload_models():
             f"[stt] modèles préchargés — moteur={engines.resolve_engine()} "
             f"modèle={engines.model_name(engines.resolve_engine())} "
             f"device={engines.get_device()} "
-            f"diarisation={'oui' if _preload_state.get('diarization') else 'non'}",
+            f"diarisation={'oui' if _preload_state.get('diarization') else 'non'} "
+            f"dictée={config.STT_DICTEE_MODEL if _preload_state.get('dictee') else 'non'}",
             flush=True,
         )
 
@@ -98,6 +108,14 @@ async def health_check():
         "preloaded": engines.is_loaded(),
         "preload_error": _preload_state.get("error"),
         "max_concurrency": config.STT_MAX_CONCURRENCY,
+        # Dictée utilisateur : file d'attente distincte de l'ingestion.
+        "dictee": {
+            "model": config.STT_DICTEE_MODEL,
+            "preloaded": _preload_state.get("dictee", False),
+            "concurrency": config.STT_DICTEE_CONCURRENCY,
+            "max_seconds": config.STT_DICTEE_MAX_SECONDS,
+            "hotwords": bool(config.STT_HOTWORDS),
+        },
     }
 
     try:
@@ -237,6 +255,68 @@ async def ws_realtime(websocket: WebSocket, model: str = None):
 
 
 # --- API Diarisation ---
+
+@app.post("/api/transcribe")
+async def transcribe_dictation(
+    file: UploadFile = File(...),
+    language: str = Form("fr"),
+):
+    """Dictée utilisateur : upload court → texte, en une seule réponse.
+
+    Ni diarisation, ni job asynchrone, ni écriture persistante. Tout passe par
+    un répertoire temporaire détruit dans le `finally` — y compris en cas
+    d'échec. Contrairement à /api/diarize, RIEN n'atterrit dans recordings/ :
+    ce sont des personnes qui décrivent leur détresse, et le site leur promet
+    que rien n'est conservé."""
+    contenu = await file.read()
+    if not contenu:
+        return JSONResponse(status_code=400, content={"error": "Audio vide"})
+    if len(contenu) > config.STT_DICTEE_MAX_BYTES:
+        return JSONResponse(
+            status_code=413,
+            content={"error": f"Audio trop volumineux (max {config.STT_DICTEE_MAX_BYTES // (1024*1024)} Mo)"},
+        )
+
+    dossier = tempfile.mkdtemp(prefix="dictee_")
+    try:
+        ext = Path(file.filename or "").suffix or ".webm"
+        brut = os.path.join(dossier, f"audio{ext}")
+        with open(brut, "wb") as f:
+            f.write(contenu)
+
+        # Conversion puis contrôle de durée — AVANT de prendre un créneau GPU,
+        # pour qu'un fichier hors gabarit ne fasse attendre personne.
+        try:
+            wav = await asyncio.to_thread(convert_to_wav, brut)
+        except Exception as e:
+            print(f"[stt] dictée : conversion impossible ({e})", flush=True)
+            return JSONResponse(status_code=400, content={"error": "Format audio illisible"})
+
+        duree = sf.info(wav).duration
+        if duree > config.STT_DICTEE_MAX_SECONDS:
+            return JSONResponse(
+                status_code=413,
+                content={
+                    "error": f"Dictée trop longue ({int(duree)} s, max {config.STT_DICTEE_MAX_SECONDS} s)"
+                },
+            )
+
+        debut = time.time()
+        async with _dictee_slots:
+            texte = await asyncio.to_thread(engines.transcrire_dictee, wav, language)
+        ecoule = time.time() - debut
+        print(
+            f"[stt] dictée {duree:.1f}s transcrite en {ecoule:.1f}s "
+            f"({duree/ecoule if ecoule else 0:.1f}x temps réel)",
+            flush=True,
+        )
+        return {"text": texte, "duration": round(duree, 1), "elapsed": round(ecoule, 1)}
+    except Exception as e:
+        print(f"[stt] dictée en échec : {e}", flush=True)
+        return JSONResponse(status_code=500, content={"error": "Transcription impossible"})
+    finally:
+        shutil.rmtree(dossier, ignore_errors=True)
+
 
 @app.post("/api/diarize")
 async def start_diarization(

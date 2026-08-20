@@ -82,11 +82,16 @@ def _load_crisperwhisper(name: str, device: str):
     return CrisperWhisperModel(name, **kwargs)
 
 
-def get_asr(engine: str | None = None, device: str | None = None):
-    """Modèle ASR du moteur demandé, chargé une seule fois."""
+def get_asr(engine: str | None = None, device: str | None = None, name: str | None = None):
+    """Modèle ASR du moteur demandé, chargé une seule fois.
+
+    `name` force un modèle précis au lieu du défaut de configuration : c'est
+    ce qui permet à la dictée d'avoir son propre modèle tout en partageant CE
+    cache — la faire passer par le cache parallèle de stt/realtime.py
+    chargerait une seconde copie en VRAM."""
     engine = resolve_engine(engine)
     device = device or get_device()
-    name = model_name(engine)
+    name = name or model_name(engine)
     key = (engine, name, device)
     with _lock:
         if key not in _asr_models:
@@ -115,9 +120,10 @@ def get_diarization_pipeline(hf_token: str, device: str | None = None):
 
 
 def preload(hf_token: str = "") -> dict:
-    """Précharge ASR (+ pyannote si le token est là). Jamais bloquant :
-    une erreur de préchargement est rapportée, le job la refera surface."""
-    state = {"asr": False, "diarization": False, "error": None}
+    """Précharge ASR (+ pyannote si le token est là) et le modèle de dictée.
+    Jamais bloquant : une erreur de préchargement est rapportée, le job la
+    refera surface."""
+    state = {"asr": False, "diarization": False, "dictee": False, "error": None}
     try:
         get_asr()
         state["asr"] = True
@@ -126,6 +132,13 @@ def preload(hf_token: str = "") -> dict:
             state["diarization"] = True
     except Exception as e:  # pragma: no cover - dépend de l'environnement
         state["error"] = str(e)
+    # La dictée est un chemin utilisateur : son échec ne doit pas être
+    # confondu avec celui du moteur d'ingestion, ni le masquer.
+    try:
+        get_dictee_model()
+        state["dictee"] = True
+    except Exception as e:  # pragma: no cover
+        state["error"] = f"{state['error']} | dictée : {e}" if state["error"] else f"dictée : {e}"
     return state
 
 
@@ -251,6 +264,42 @@ def _segments_from_crisperwhisper(model, audio_path: str, language: str | None, 
     # locuteurs retombera alors sur « INCONNU »).
     text = (getattr(result, "text", "") or "").strip()
     return [{"start": 0.0, "end": 0.0, "text": text, "words": []}] if text else []
+
+
+# --- Dictée utilisateur ---------------------------------------------------
+
+def get_dictee_model(device: str | None = None):
+    """Modèle de dictée — toujours faster-whisper (MIT), jamais
+    CrisperWhisper, dont la licence interdit le déploiement opérationnel."""
+    return get_asr("faster-whisper", device, name=config.STT_DICTEE_MODEL)
+
+
+def transcrire_dictee(audio_path: str, language: str = "fr", device: str | None = None) -> str:
+    """Transcrit une dictée courte et renvoie du texte prêt à afficher.
+
+    Trois réglages font toute la différence sur ce cas d'usage :
+
+    - `vad_filter` retire les silences. Une dictée en contient beaucoup (on
+      hésite, on cherche ses mots) et Whisper y hallucine des phrases
+      entières — c'est son échec le plus connu.
+    - `hotwords` biaise le décodage vers le lexique du projet : c'est le
+      levier le plus direct sur la fidélité.
+    - `condition_on_previous_text=False` empêche les boucles de répétition,
+      auxquelles les extraits courts sont particulièrement exposés.
+
+    La langue est FIXÉE : sur quelques secondes d'audio, la détection
+    automatique se trompe régulièrement et bascule la sortie en anglais."""
+    model = get_dictee_model(device)
+    segments, _ = model.transcribe(
+        audio_path,
+        language=language or "fr",
+        beam_size=5,
+        vad_filter=True,
+        hotwords=config.STT_HOTWORDS or None,
+        condition_on_previous_text=False,
+        word_timestamps=False,
+    )
+    return " ".join(seg.text.strip() for seg in segments if seg.text.strip()).strip()
 
 
 def transcribe(
